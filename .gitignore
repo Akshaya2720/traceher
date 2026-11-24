@@ -20,6 +20,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# OS files
+# Generated reports & uploads
+backend/reports/*.pdf
+backend/uploads/*
+!backend/uploads/.gitkeep
 .DS_Store
 Thumbs.db
