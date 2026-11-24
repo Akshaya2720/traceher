@@ -4,6 +4,7 @@ import { PublicNavbar } from './layouts/PublicNavbar';
 import { PublicFooter } from './layouts/PublicFooter';
 import { AppSidebar } from './layouts/AppSidebar';
 import { AppTopBar } from './layouts/AppTopBar';
+import { SafetyChatbotWidget } from './components/SafetyChatbotWidget';
 
 // Public pages
 import { LandingPage } from './pages/LandingPage';
@@ -99,6 +100,7 @@ export function AppContent() {
           {renderCurrentPage()}
         </main>
         <PublicFooter />
+        <SafetyChatbotWidget />
       </div>
     );
   }
@@ -129,6 +131,9 @@ export function AppContent() {
           {renderCurrentPage()}
         </main>
       </div>
+
+      {/* Global Bottom-Right Safety Chatbot & Avatar Widget */}
+      <SafetyChatbotWidget />
     </div>
   );
 }
