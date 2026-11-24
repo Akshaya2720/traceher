@@ -17,13 +17,17 @@ import {
   Copy,
   Volume2,
   VolumeX,
-  Minimize2,
-  Maximize2
+  Mic,
+  MicOff,
+  Smile,
+  ShieldCheck
 } from 'lucide-react';
-import { unsafe_createClientWithApiKey, AnamClient } from '@anam-ai/js-sdk';
+import { createClient, unsafe_createClientWithApiKey, AnamClient } from '@anam-ai/js-sdk';
+import { api } from '../services/api';
 
 export const ANAM_PERSONA_ID = 'e0a16e95-2826-4e4c-9a9d-8a04ca1be74d';
 export const ANAM_AVATAR_ID = '195d733e-58a9-40bb-a049-ac344fa70b7f';
+export const DEFAULT_ANAM_API_KEY = 'NGVmZDVjMzctMGU1Ny00MmQxLWI4MjEtYjQ0YTQxYzc2M2EyOkc2Y2ZnbGxSd0dGbDNyb0hDelJHSGo3bmlERXNxcDBzejdLRHM1SDdhMFk9';
 
 export const MAYA_PERSONA_SYSTEM_PROMPT = `You are Maya, the compassionate AI Digital Safety Companion on TRACEHER — an evidence intelligence and cybersecurity platform for women and girls.
 
@@ -69,14 +73,16 @@ export const SafetyChatbotWidget: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'chat' | 'avatar' | 'prompt'>('chat');
   const [inputMessage, setInputMessage] = useState('');
+  const [avatarInputMessage, setAvatarInputMessage] = useState('');
   const [copiedPrompt, setCopiedPrompt] = useState(false);
 
-  // Anam AI State
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem('traceher_anam_api_key') || '');
-  const [isApiKeySaved, setIsApiKeySaved] = useState(() => !!localStorage.getItem('traceher_anam_api_key'));
+  // Preload Anam AI API key from localStorage or use the provided valid key
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem('traceher_anam_api_key') || DEFAULT_ANAM_API_KEY);
+  const [isApiKeySaved, setIsApiKeySaved] = useState(() => !!localStorage.getItem('traceher_anam_api_key') || !!DEFAULT_ANAM_API_KEY);
   const [isStreamingAvatar, setIsStreamingAvatar] = useState(false);
   const [avatarConnecting, setAvatarConnecting] = useState(false);
   const [avatarError, setAvatarError] = useState('');
+  const [avatarSpeaking, setAvatarSpeaking] = useState(false);
   const anamClientRef = useRef<AnamClient | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
@@ -114,43 +120,62 @@ export const SafetyChatbotWidget: React.FC = () => {
   }, []);
 
   const saveApiKey = () => {
-    if (!apiKey.trim()) return;
-    localStorage.setItem('traceher_anam_api_key', apiKey.trim());
+    const key = apiKey.trim() || DEFAULT_ANAM_API_KEY;
+    localStorage.setItem('traceher_anam_api_key', key);
     setIsApiKeySaved(true);
     setAvatarError('');
   };
 
   const startAvatarStream = async () => {
-    if (!apiKey) {
+    const effectiveKey = apiKey.trim() || DEFAULT_ANAM_API_KEY;
+    if (!effectiveKey) {
       setAvatarError('Please enter your Anam AI API key first.');
       return;
     }
+
     setAvatarConnecting(true);
     setAvatarError('');
 
     try {
-      // Initialize Anam AI Client with user-provided key & IDs
-      const client = unsafe_createClientWithApiKey(apiKey.trim(), {
-        personaId: ANAM_PERSONA_ID,
-        avatarId: ANAM_AVATAR_ID,
-        name: 'Maya',
-        voiceId: 'en_female_1',
-        systemPrompt: MAYA_PERSONA_SYSTEM_PROMPT
-      });
+      // 1. First attempt: fetch official WebRTC session token from backend proxy
+      let client: AnamClient | null = null;
+      try {
+        const tokenRes = await api.getAnamSessionToken(ANAM_PERSONA_ID);
+        if (tokenRes && tokenRes.success && tokenRes.sessionToken) {
+          client = createClient(tokenRes.sessionToken);
+        }
+      } catch (e) {
+        console.warn('Backend session token fetch failed, falling back to direct key', e);
+      }
+
+      // 2. Fallback: initialize via client-side API key
+      if (!client) {
+        client = unsafe_createClientWithApiKey(effectiveKey, {
+          personaId: ANAM_PERSONA_ID,
+          avatarId: ANAM_AVATAR_ID,
+          name: 'Maya',
+          voiceId: 'en_female_1',
+          systemPrompt: MAYA_PERSONA_SYSTEM_PROMPT
+        });
+      }
 
       anamClientRef.current = client;
 
-      // Stream to the video element
+      // Stream to video element
       await client.streamToVideoElement('anam-avatar-video');
       setIsStreamingAvatar(true);
       setAvatarConnecting(false);
 
       // Greet user via avatar talk
       try {
-        await client.talk("Hello, I am Maya. I am here with you. How can I support your digital safety today?");
-      } catch {}
+        setAvatarSpeaking(true);
+        await client.talk("Hello, I am Maya. You are safe here. How can I help you today?");
+        setAvatarSpeaking(false);
+      } catch {
+        setAvatarSpeaking(false);
+      }
     } catch (err: any) {
-      setAvatarError(err?.message || 'Failed to connect to Anam AI stream. Please verify your API key.');
+      setAvatarError(err?.message || 'Failed to connect to Anam AI stream. Please check your network or key.');
       setAvatarConnecting(false);
       setIsStreamingAvatar(false);
     }
@@ -165,6 +190,26 @@ export const SafetyChatbotWidget: React.FC = () => {
     }
     setIsStreamingAvatar(false);
     setAvatarConnecting(false);
+    setAvatarSpeaking(false);
+  };
+
+  const handleSendAvatarMessage = async () => {
+    const text = avatarInputMessage.trim();
+    if (!text) return;
+    setAvatarInputMessage('');
+
+    if (isStreamingAvatar && anamClientRef.current) {
+      try {
+        setAvatarSpeaking(true);
+        anamClientRef.current.sendUserMessage(text);
+        setTimeout(() => setAvatarSpeaking(false), 3000);
+      } catch {
+        setAvatarSpeaking(false);
+      }
+    }
+
+    // Also mirror to text chat
+    handleSendMessage(text);
   };
 
   const handleSendMessage = (textToSend?: string) => {
@@ -181,7 +226,7 @@ export const SafetyChatbotWidget: React.FC = () => {
     setMessages(prev => [...prev, userMsg]);
     if (!textToSend) setInputMessage('');
 
-    // If avatar is actively streaming, send to Anam AI avatar
+    // If avatar is actively streaming, inform the avatar
     if (isStreamingAvatar && anamClientRef.current) {
       try {
         anamClientRef.current.sendUserMessage(text);
@@ -199,7 +244,7 @@ export const SafetyChatbotWidget: React.FC = () => {
         quickActions: reply.suggestions
       };
       setMessages(prev => [...prev, botMsg]);
-    }, 700);
+    }, 600);
   };
 
   const handleCopyPrompt = () => {
@@ -216,7 +261,7 @@ export const SafetyChatbotWidget: React.FC = () => {
           <motion.div
             initial={{ opacity: 0, x: 10 }}
             animate={{ opacity: 1, x: 0 }}
-            className="hidden sm:flex items-center gap-2 px-3.5 py-2 bg-white rounded-2xl border border-[#E8E9F1] shadow-lg text-xs font-semibold text-[#17172F] cursor-pointer"
+            className="hidden sm:flex items-center gap-2 px-3.5 py-2 bg-white rounded-2xl border border-[#E8E9F1] shadow-lg text-xs font-semibold text-[#17172F] cursor-pointer hover:border-[#6556D9]/40 transition-colors"
             onClick={() => setIsOpen(true)}
           >
             <span className="w-2 h-2 rounded-full bg-[#239B75] animate-pulse" />
@@ -252,7 +297,7 @@ export const SafetyChatbotWidget: React.FC = () => {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
             transition={{ duration: 0.25, ease: 'easeOut' }}
-            className="fixed bottom-22 right-4 sm:right-6 z-50 w-[calc(100vw-2rem)] sm:w-[410px] max-h-[82vh] h-[620px] bg-white rounded-3xl border border-[#E8E9F1] shadow-2xl flex flex-col overflow-hidden text-left"
+            className="fixed bottom-22 right-4 sm:right-6 z-50 w-[calc(100vw-2rem)] sm:w-[420px] max-h-[82vh] h-[640px] bg-white rounded-3xl border border-[#E8E9F1] shadow-2xl flex flex-col overflow-hidden text-left"
           >
             {/* Header */}
             <div className="p-4 bg-gradient-to-r from-white via-white to-[#F0EDFF]/50 border-b border-[#E8E9F1] flex items-center justify-between">
@@ -270,7 +315,7 @@ export const SafetyChatbotWidget: React.FC = () => {
                       Safety Companion
                     </span>
                   </div>
-                  <p className="text-[11px] text-[#777A91]">Powered by Anam AI • Confidential</p>
+                  <p className="text-[11px] text-[#777A91]">Anam AI Persona • Ready & Confidential</p>
                 </div>
               </div>
 
@@ -304,7 +349,7 @@ export const SafetyChatbotWidget: React.FC = () => {
                 }`}
               >
                 <Video className="w-3.5 h-3.5" />
-                <span>Live Avatar</span>
+                <span>Live Avatar (Anam)</span>
                 {isStreamingAvatar && (
                   <span className="w-2 h-2 rounded-full bg-[#239B75] animate-pulse" />
                 )}
@@ -318,7 +363,7 @@ export const SafetyChatbotWidget: React.FC = () => {
                 }`}
               >
                 <Info className="w-3.5 h-3.5" />
-                <span>Avatar Prompt</span>
+                <span>Prompt Guide</span>
               </button>
             </div>
 
@@ -394,9 +439,9 @@ export const SafetyChatbotWidget: React.FC = () => {
 
             {/* TAB 2: LIVE AVATAR STREAM (ANAM AI) */}
             {activeTab === 'avatar' && (
-              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              <div className="flex-1 flex flex-col justify-between overflow-y-auto p-4 space-y-3">
                 {/* Video container */}
-                <div className="relative rounded-2xl bg-black overflow-hidden aspect-video flex items-center justify-center shadow-inner">
+                <div className="relative rounded-2xl bg-black overflow-hidden aspect-video flex items-center justify-center shadow-md border border-[#E8E9F1]">
                   <video
                     id="anam-avatar-video"
                     ref={videoRef}
@@ -412,63 +457,25 @@ export const SafetyChatbotWidget: React.FC = () => {
                       </div>
                       <p className="text-xs font-bold text-white">Anam AI Virtual Human</p>
                       <p className="text-[11px] text-gray-300 max-w-xs">
-                        Interactive video avatar with live speech and facial expression.
+                        Interactive video avatar with live speech, expressions, and real-time WebRTC audio.
                       </p>
                     </div>
                   )}
 
                   {avatarConnecting && (
-                    <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center space-y-2 text-white">
+                    <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center space-y-2 text-white z-10">
                       <div className="w-8 h-8 border-3 border-[#6556D9] border-t-transparent rounded-full animate-spin" />
                       <span className="text-xs font-semibold">Connecting to Anam AI stream...</span>
                     </div>
                   )}
+
+                  {isStreamingAvatar && avatarSpeaking && (
+                    <div className="absolute top-2 left-2 px-2.5 py-1 bg-black/60 backdrop-blur-xs rounded-full flex items-center gap-1.5 text-[10px] text-white font-semibold">
+                      <Volume2 className="w-3 h-3 text-[#239B75] animate-pulse" />
+                      <span>Maya is speaking...</span>
+                    </div>
+                  )}
                 </div>
-
-                {/* Configuration / API Key Box */}
-                <div className="p-3.5 bg-[#F7F8FC] rounded-2xl border border-[#E8E9F1] space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-[#17172F] flex items-center gap-1.5">
-                      <Key className="w-3.5 h-3.5 text-[#6556D9]" />
-                      <span>Anam AI API Key</span>
-                    </span>
-                    {isApiKeySaved && (
-                      <span className="text-[10px] text-[#239B75] font-bold flex items-center gap-1">
-                        <Check className="w-3 h-3" /> Saved
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="password"
-                      placeholder="Paste your anam.ai API Key"
-                      value={apiKey}
-                      onChange={e => {
-                        setApiKey(e.target.value);
-                        setIsApiKeySaved(false);
-                      }}
-                      className="flex-1 px-3 py-1.5 bg-white border border-[#E8E9F1] rounded-xl text-xs text-[#20213A] focus:outline-none focus:border-[#6556D9]"
-                    />
-                    <button
-                      onClick={saveApiKey}
-                      className="px-3 py-1.5 bg-white border border-[#E8E9F1] hover:border-[#6556D9] text-[#6556D9] text-xs font-semibold rounded-xl transition-all cursor-pointer"
-                    >
-                      Save
-                    </button>
-                  </div>
-
-                  <div className="text-[10px] text-[#777A91] space-y-0.5">
-                    <p>Persona ID: <span className="font-mono text-[#20213A]">{ANAM_PERSONA_ID.substring(0, 14)}...</span></p>
-                    <p>Avatar ID: <span className="font-mono text-[#20213A]">{ANAM_AVATAR_ID.substring(0, 14)}...</span></p>
-                  </div>
-                </div>
-
-                {avatarError && (
-                  <div className="p-3 bg-[#FEF2F2] border border-[#D95F6C]/25 rounded-xl text-xs text-[#D95F6C]">
-                    {avatarError}
-                  </div>
-                )}
 
                 {/* Stream Controls */}
                 <div className="space-y-2">
@@ -482,18 +489,78 @@ export const SafetyChatbotWidget: React.FC = () => {
                       <span>Start Live Avatar Video Session</span>
                     </button>
                   ) : (
-                    <button
-                      onClick={stopAvatarStream}
-                      className="w-full py-2.5 bg-[#FEF2F2] hover:bg-[#FEE2E2] text-[#D95F6C] border border-[#D95F6C]/20 text-xs font-semibold rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer"
-                    >
-                      <VideoOff className="w-4 h-4" />
-                      <span>Stop Avatar Stream</span>
-                    </button>
+                    <div className="space-y-2">
+                      <button
+                        onClick={stopAvatarStream}
+                        className="w-full py-2 bg-[#FEF2F2] hover:bg-[#FEE2E2] text-[#D95F6C] border border-[#D95F6C]/20 text-xs font-semibold rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        <VideoOff className="w-3.5 h-3.5" />
+                        <span>Stop Avatar Stream</span>
+                      </button>
+
+                      {/* Live typing to avatar */}
+                      <div className="flex items-center gap-2 pt-1">
+                        <input
+                          type="text"
+                          placeholder="Type to talk directly to Maya..."
+                          value={avatarInputMessage}
+                          onChange={e => setAvatarInputMessage(e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && handleSendAvatarMessage()}
+                          className="flex-1 px-3.5 py-2 bg-[#F7F8FC] border border-[#E8E9F1] rounded-xl text-xs text-[#20213A] focus:outline-none focus:border-[#6556D9]"
+                        />
+                        <button
+                          onClick={handleSendAvatarMessage}
+                          className="p-2 bg-[#6556D9] text-white rounded-xl cursor-pointer hover:bg-[#5244C4]"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </div>
 
-                <div className="p-3 bg-[#E8F6F0] rounded-xl border border-[#239B75]/20 text-[11px] text-[#239B75] leading-relaxed">
-                  <strong>Live Voice & Listening:</strong> When started, Maya speaks to you via audio and animates live in real time. You can type in the Chat tab or speak to interact!
+                {avatarError && (
+                  <div className="p-3 bg-[#FEF2F2] border border-[#D95F6C]/25 rounded-xl text-xs text-[#D95F6C]">
+                    {avatarError}
+                  </div>
+                )}
+
+                {/* Configuration / API Key Box (Pre-loaded with user's key) */}
+                <div className="p-3 bg-[#F7F8FC] rounded-2xl border border-[#E8E9F1] space-y-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-[#17172F] flex items-center gap-1.5 text-[11px]">
+                      <Key className="w-3.5 h-3.5 text-[#6556D9]" />
+                      <span>Anam AI Key Config</span>
+                    </span>
+                    <span className="text-[10px] text-[#239B75] font-bold flex items-center gap-1 bg-[#E8F6F0] px-2 py-0.5 rounded-full border border-[#239B75]/20">
+                      <Check className="w-3 h-3" /> Pre-Configured
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="password"
+                      placeholder="Anam AI API Key"
+                      value={apiKey}
+                      onChange={e => setApiKey(e.target.value)}
+                      className="flex-1 px-3 py-1.5 bg-white border border-[#E8E9F1] rounded-xl text-[11px] text-[#20213A] focus:outline-none focus:border-[#6556D9]"
+                    />
+                    <button
+                      onClick={saveApiKey}
+                      className="px-3 py-1.5 bg-white border border-[#E8E9F1] hover:border-[#6556D9] text-[#6556D9] text-xs font-semibold rounded-xl transition-all cursor-pointer"
+                    >
+                      Update
+                    </button>
+                  </div>
+
+                  <div className="text-[10px] text-[#777A91] space-y-0.5">
+                    <p>Persona ID: <span className="font-mono text-[#20213A]">{ANAM_PERSONA_ID.substring(0, 16)}...</span></p>
+                    <p>Avatar ID: <span className="font-mono text-[#20213A]">{ANAM_AVATAR_ID.substring(0, 16)}...</span></p>
+                  </div>
+                </div>
+
+                <div className="p-2.5 bg-[#E8F6F0] rounded-xl border border-[#239B75]/20 text-[10px] text-[#239B75] leading-relaxed">
+                  <strong>Live WebRTC Stream:</strong> Maya will speak with real voice and lip-sync directly into your browser.
                 </div>
               </div>
             )}
@@ -519,7 +586,7 @@ export const SafetyChatbotWidget: React.FC = () => {
                 <div className="p-3 bg-[#FFF8EB] border border-[#E8A33D]/25 rounded-xl text-[11px] text-[#20213A] space-y-1">
                   <span className="font-bold text-[#E8A33D]">How to configure in Anam AI:</span>
                   <p className="text-[#777A91] leading-relaxed">
-                    Log in to your Anam dashboard, open Persona <span className="font-mono text-black">{ANAM_PERSONA_ID}</span>, and paste the system prompt above into the Persona Instructions field.
+                    Open your Anam dashboard at <a href="https://lab.anam.ai" target="_blank" rel="noreferrer" className="text-[#6556D9] underline">lab.anam.ai</a>, select Persona <span className="font-mono text-black">{ANAM_PERSONA_ID}</span>, and paste the instructions above into the System Prompt.
                   </p>
                 </div>
               </div>
@@ -537,9 +604,9 @@ function generateSafetyResponse(input: string): { text: string; suggestions: str
 
   if (query.includes('threat') || query.includes('blackmail') || query.includes('photo') || query.includes('extort')) {
     return {
-      text: "Please do not panic. You have control, and this is extortion which is a punishable criminal offense.\n\n1. Do NOT send money or additional photos — paying rarely stops blackmailers.\n2. Do NOT delete the chat or block them immediately: take full screenshots showing the sender's handle, phone number, and timestamps.\n3. Upload the screenshots to TRACEHER's Evidence Center to lock the SHA-256 custody hash.\n4. Call 1930 (Cybercrime Helpline) or report confidentially on cybercrime.gov.in.",
+      text: "Please take a deep breath. You are not alone, and what is happening is extortion, which is a severe cybercrime under Indian law.\n\n1. Do NOT pay or send additional photos: paying does not stop blackmailers and often invites more demands.\n2. Do NOT delete the messages yet: take full screenshots showing the sender's handle, phone number, and exact date and time.\n3. Upload your screenshots into TRACEHER's Evidence Center to lock the SHA-256 custody hash.\n4. Call 1930 (National Cyber Crime Helpline) or file confidentially at cybercrime.gov.in.\n5. If someone threatens to show up at your home or workplace, call 112 immediately.",
       suggestions: [
-        'How do I take safe screenshots?',
+        'How do I save screenshot evidence?',
         'Can I redact my face or address?',
         'What should I tell police?'
       ]
@@ -548,7 +615,7 @@ function generateSafetyResponse(input: string): { text: string; suggestions: str
 
   if (query.includes('screenshot') || query.includes('evidence') || query.includes('save') || query.includes('hash')) {
     return {
-      text: "To capture court-ready digital evidence:\n\n• Include the full screen: show the perpetrator's username, profile avatar, exact timestamp, and URL bar if in a browser.\n• Do not crop out the top status bar (battery/time) on phones.\n• When you upload to TRACEHER, our engine generates an immutable SHA-256 cryptographic hash so no one can accuse you of editing the screenshot later.",
+      text: "To preserve court-ready digital evidence:\n\n• Include the full screen: keep the top status bar (showing time, network, battery) visible.\n• Capture the sender's handle or phone number, not just their display name.\n• When you drag and drop your files into TRACEHER's Evidence Center, our engine generates an immutable SHA-256 cryptographic hash so no one can accuse you of editing the screenshot later.\n• Use Privacy Guardian to mask your own private details before sharing copies.",
       suggestions: [
         'Go to Evidence Center',
         'How do I redact sensitive info?',
@@ -559,7 +626,7 @@ function generateSafetyResponse(input: string): { text: string; suggestions: str
 
   if (query.includes('emergency') || query.includes('number') || query.includes('police') || query.includes('call')) {
     return {
-      text: "Here are verified emergency and official helplines in India:\n\n🚨 Immediate Emergency / Police: 112\n💻 National Cyber Crime Helpline: 1930 (24x7)\n👩 National Commission for Women (NCW): 7827170170\n🌐 Official Portal: cybercrime.gov.in\n\nAll calls to 1930 and 112 are confidential and routed to emergency responders.",
+      text: "Here are verified emergency numbers and official contacts in India:\n\n🚨 Immediate Physical Emergency / Police: 112 (Toll Free, 24x7)\n💻 National Cyber Crime Helpline: 1930 (24x7)\n👩 National Commission for Women (NCW): 7827170170\n🌐 National Cyber Crime Portal: https://cybercrime.gov.in\n\nAll calls are confidential and routed directly to official safety responders.",
       suggestions: [
         'How do I file on cybercrime.gov.in?',
         'I am being threatened or blackmailed'

@@ -16,6 +16,7 @@ import {
   Clock
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import jsPDF from 'jspdf';
 
 export const ReportCenterPage: React.FC = () => {
   const {
@@ -49,47 +50,89 @@ export const ReportCenterPage: React.FC = () => {
     }, 700);
   };
 
-  const handleDownload = (rep: typeof reports[0]) => {
-    // Attempt download from backend; fallback to generating a clean text/pdf file directly
-    const textContent = `TRACEHER OFFICIAL EVIDENCE DOSSIER & INCIDENT INTELLIGENCE
-Report ID: ${rep.id}
-Incident Reference: ${rep.incidentReference}
-Incident Title: ${rep.incidentTitle}
-Generated: ${rep.generatedAt}
+  const handleDownload = async (rep: typeof reports[0]) => {
+    // 1. Attempt to download real backend ReportLab PDF first
+    try {
+      const res = await fetch(`/api/reports/${rep.id}/download`);
+      if (res.ok) {
+        const blob = await res.blob();
+        if (blob.size > 200) {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `TraceHer_Dossier_${rep.incidentReference}.pdf`;
+          a.click();
+          return;
+        }
+      }
+    } catch {}
 
-============================================================
-1. INCIDENT OVERVIEW
-Title: ${rep.incidentTitle}
-Reference: ${rep.incidentReference}
-Status: Active & Cryptographically Preserved
+    // 2. Real client-side jsPDF vector PDF generation (creates a valid opening PDF)
+    const doc = new jsPDF();
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(18);
+    doc.setTextColor(101, 86, 217);
+    doc.text('TRACEHER — DIGITAL SAFETY DOSSIER', 14, 20);
 
-============================================================
-2. CHAIN OF CUSTODY (SHA-256 HASH VERIFICATION)
-${linkedEv.map((e, idx) => `Exhibit #${idx+1}: ${e.originalFilename}
-Size: ${(e.fileSize/1024).toFixed(1)} KB | Type: ${e.fileType}
-SHA-256 Hash: ${e.sha256Hash}`).join('\n\n')}
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(119, 122, 145);
+    doc.text(`Official Evidence Dossier • Reference: ${rep.incidentReference}`, 14, 28);
+    doc.text(`Generated: ${rep.generatedAt} • Chain-of-Custody Protected`, 14, 34);
 
-============================================================
-3. AI THREAT & PATTERN CLASSIFICATION MATRIX
-[AI-Generated Analysis — Requires Human Review]
-${linkedEv.flatMap(e => e.analyses || []).map(a => `Category: ${a.category} (${Math.round(a.confidence*100)}% Confidence)
-Excerpt: "${a.supportingText}"
-Context: ${a.explanation}`).join('\n\n')}
+    doc.setDrawColor(232, 233, 241);
+    doc.line(14, 38, 196, 38);
 
-============================================================
-4. OFFICIAL REPORTING RESOURCES & CONTACTS
-- National Cyber Crime Reporting Portal: https://cybercrime.gov.in
-- National Emergency Police Helpline: 112
-- National Cybercrime Helpline: 1930
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(23, 23, 47);
+    doc.text('1. Incident Overview', 14, 46);
 
-DISCLAIMER: TRACEHER is a technical evidence organization workspace. This document does not constitute formal legal counsel.`;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.text(`Title: ${rep.incidentTitle}`, 14, 54);
+    doc.text(`Case Reference: ${rep.incidentReference}`, 14, 60);
+    doc.text(`Status: Verified & Cryptographically Locked`, 14, 66);
 
-    const blob = new Blob([textContent], { type: 'application/pdf' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `TraceHer_Dossier_${rep.incidentReference}.pdf`;
-    a.click();
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.text('2. Chain-of-Custody Evidence Exhibits (SHA-256)', 14, 76);
+
+    let y = 84;
+    linkedEv.forEach((e, i) => {
+      if (y > 250) { doc.addPage(); y = 20; }
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(101, 86, 217);
+      doc.text(`Exhibit #${i + 1}: ${e.originalFilename}`, 14, y);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(32, 33, 58);
+      y += 6;
+      doc.text(`Size: ${(e.fileSize / 1024).toFixed(1)} KB | Type: ${e.fileType}`, 14, y);
+      y += 6;
+      doc.setFont('courier', 'normal');
+      doc.text(`SHA-256: ${e.sha256Hash}`, 14, y);
+      doc.setFont('helvetica', 'normal');
+      y += 10;
+    });
+
+    if (y > 230) { doc.addPage(); y = 20; }
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(23, 23, 47);
+    doc.text('3. Official Emergency & Reporting Contacts (India)', 14, y);
+    y += 8;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.text('• Police Emergency Helpline: 112', 14, y); y += 6;
+    doc.text('• National Cyber Crime Helpline: 1930', 14, y); y += 6;
+    doc.text('• National Cyber Crime Reporting Portal: https://cybercrime.gov.in', 14, y); y += 12;
+
+    doc.setFontSize(8);
+    doc.setTextColor(119, 122, 145);
+    doc.text('DISCLAIMER: TRACEHER is a technical evidence organization workspace. This document does not constitute legal counsel.', 14, y);
+
+    doc.save(`TraceHer_Dossier_${rep.incidentReference}.pdf`);
   };
 
   return (

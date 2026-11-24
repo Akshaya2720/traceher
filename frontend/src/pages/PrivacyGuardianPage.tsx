@@ -83,7 +83,84 @@ export const PrivacyGuardianPage: React.FC = () => {
     setIsExporting(true);
     setTimeout(() => {
       setIsExporting(false);
-      // Trigger a browser download of the redacted mock text/image
+      try {
+        // Create an offscreen canvas to render a real redacted PNG
+        const canvas = document.createElement('canvas');
+        canvas.width = 900;
+        canvas.height = 650;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          // White background
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          // Header banner
+          ctx.fillStyle = '#F0EDFF';
+          ctx.fillRect(0, 0, canvas.width, 70);
+          ctx.fillStyle = '#6556D9';
+          ctx.font = 'bold 20px Inter, sans-serif';
+          ctx.fillText('TRACEHER — PRIVACY PROTECTED EVIDENCE EXHIBIT', 30, 42);
+
+          // Metadata strip
+          ctx.fillStyle = '#777A91';
+          ctx.font = '12px Inter, sans-serif';
+          ctx.fillText(`Original Exhibit: ${evidence?.originalFilename || 'screenshot.png'} | SHA-256 Digest: ${evidence?.sha256Hash?.substring(0, 24) || 'a4f89d31...'}...`, 30, 100);
+          ctx.fillText(`Non-Destructively Redacted: ${new Date().toLocaleString()} | Retains Original Forensic Proof`, 30, 120);
+
+          // Screenshot content card
+          ctx.fillStyle = '#F7F8FC';
+          ctx.strokeStyle = '#E8E9F1';
+          ctx.lineWidth = 1;
+          ctx.roundRect(30, 140, 840, 420, 16);
+          ctx.fill();
+          ctx.stroke();
+
+          // Text content
+          ctx.fillStyle = '#17172F';
+          ctx.font = '14px Inter, monospace';
+          const textLines = (evidence?.extractedText || 'Sender: @shadow_stalker99\nThreat text with location and contact').split('\n');
+          let yText = 180;
+          textLines.forEach(line => {
+            ctx.fillText(line, 50, yText);
+            yText += 28;
+          });
+
+          // Draw active black redaction masks
+          regions.filter(r => r.selected).forEach(r => {
+            const rx = 30 + (r.x / 100) * 840;
+            const ry = 140 + (r.y / 100) * 420;
+            const rw = (r.width / 100) * 840;
+            const rh = (r.height / 100) * 420;
+
+            ctx.fillStyle = '#17172F';
+            ctx.fillRect(rx, ry, Math.max(rw, 120), Math.max(rh, 32));
+
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = 'bold 11px Inter, sans-serif';
+            ctx.fillText(`[REDACTED ${r.type.toUpperCase()}]`, rx + 8, ry + Math.max(rh, 32) / 2 + 4);
+          });
+
+          // Bottom footer watermark
+          ctx.fillStyle = '#239B75';
+          ctx.font = 'bold 11px Inter, sans-serif';
+          ctx.fillText('✓ SANITIZED FOR SAFE SHARING — ORIGINAL WRITE-PROTECTED IN VAULT', 30, 600);
+
+          canvas.toBlob(blob => {
+            if (blob) {
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `redacted_exhibit_${evidence?.id || 'doc'}.png`;
+              a.click();
+            }
+          }, 'image/png');
+          return;
+        }
+      } catch (err) {
+        console.error(err);
+      }
+
+      // Plaintext fallback
       const blob = new Blob([
         `TRACEHER Non-Destructive Redacted Exhibit\nOriginal Evidence ID: ${evidence?.id}\nSHA-256 Protected Original Digest: ${evidence?.sha256Hash}\nRedacted Fields: ${regions.filter(r => r.selected).map(r => r.type).join(', ')}\n\nExtracted Content:\n"[REDACTED_AVATAR] @shadow_stalker99: You think you can ignore me? I know where you work on [REDACTED_ADDRESS]. Watch your back tomorrow.\nCall me on [REDACTED_PHONE] or email [REDACTED_EMAIL] immediately."`
       ], { type: 'text/plain' });

@@ -14,6 +14,7 @@ from app.api.notifications import router as notifications_router
 from app.api.profile import router as profile_router
 from app.api.settings import router as settings_router
 from app.api.demo import router as demo_router
+from app.api.anam import router as anam_router
 
 # Ensure directory structure
 os.makedirs("uploads", exist_ok=True)
@@ -51,6 +52,7 @@ app.include_router(notifications_router)
 app.include_router(profile_router)
 app.include_router(settings_router)
 app.include_router(demo_router)
+app.include_router(anam_router)
 
 @app.get("/")
 def root():

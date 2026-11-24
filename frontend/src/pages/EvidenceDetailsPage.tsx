@@ -94,22 +94,36 @@ export const EvidenceDetailsPage: React.FC = () => {
             </div>
 
             {/* Visual Preview Box */}
-            <div className="aspect-[4/3] rounded-xl bg-[#F7F8FC] border border-[#E8E9F1] flex flex-col items-center justify-center p-6 text-center space-y-3 relative overflow-hidden">
-              <div className="w-12 h-12 rounded-2xl bg-white border border-[#E8E9F1] flex items-center justify-center text-[#6556D9] shadow-xs">
-                <FileText className="w-6 h-6" />
-              </div>
-              <div className="space-y-1">
-                <div className="text-xs font-bold text-[#17172F] break-all">
-                  {evidence.originalFilename}
+            {evidence.fileUrl && (evidence.fileType.includes('image') || evidence.originalFilename.match(/\.(png|jpe?g|webp|gif)$/i)) ? (
+              <div className="rounded-xl overflow-hidden border border-[#E8E9F1] bg-black/5 relative group p-2">
+                <img
+                  src={evidence.fileUrl}
+                  alt={evidence.originalFilename}
+                  className="w-full max-h-64 object-contain rounded-lg mx-auto"
+                />
+                <div className="flex items-center justify-between pt-2 px-1 text-[10px] text-[#777A91]">
+                  <span className="truncate max-w-[180px] font-medium">{evidence.originalFilename}</span>
+                  <span>{(evidence.fileSize / 1024).toFixed(1)} KB</span>
                 </div>
-                <div className="text-[10px] text-[#777A91]">
-                  {(evidence.fileSize / 1024).toFixed(1)} KB • {evidence.fileType}
+              </div>
+            ) : (
+              <div className="aspect-[4/3] rounded-xl bg-[#F7F8FC] border border-[#E8E9F1] flex flex-col items-center justify-center p-6 text-center space-y-3 relative overflow-hidden">
+                <div className="w-12 h-12 rounded-2xl bg-white border border-[#E8E9F1] flex items-center justify-center text-[#6556D9] shadow-xs">
+                  <FileText className="w-6 h-6" />
+                </div>
+                <div className="space-y-1">
+                  <div className="text-xs font-bold text-[#17172F] break-all">
+                    {evidence.originalFilename}
+                  </div>
+                  <div className="text-[10px] text-[#777A91]">
+                    {(evidence.fileSize / 1024).toFixed(1)} KB • {evidence.fileType}
+                  </div>
+                </div>
+                <div className="text-[10px] bg-white px-2.5 py-1 rounded-full border border-[#E8E9F1] text-[#777A91]">
+                  Original uploaded exhibit
                 </div>
               </div>
-              <div className="text-[10px] bg-white px-2.5 py-1 rounded-full border border-[#E8E9F1] text-[#777A91]">
-                Original uploaded exhibit
-              </div>
-            </div>
+            )}
 
             {/* SHA-256 Cryptographic Hash Box */}
             <div className="p-3.5 bg-[#F7F8FC] rounded-xl border border-[#E8E9F1] space-y-2">
